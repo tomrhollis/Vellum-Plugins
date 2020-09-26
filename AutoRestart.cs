@@ -19,14 +19,12 @@ namespace AutoRestart
         private uint msCountdown;
         private string _worldName = "Bedrock level";
         private bool crashing = false;
-        private bool vzEnabled = false;
         private bool statusMessages = true;
 
         private ProcessManager bds;
         private BackupManager backupManager;
         private RenderManager renderManager;
         private Watchdog bdsWatchdog;
-        private VellumZero.VellumZero vz;
 
         #region PLUGIN
         internal IHost Host; 
@@ -52,8 +50,10 @@ namespace AutoRestart
         {
             return new RestartConfig()
             {
-                AutoRestartTime = "12:00p",
+                DailyRestartTime = "12:00",
+                WarningTime = 10,
                 HiVisShutdown = true,
+                IgnorePatterns = new String[] { "No targets matched selector", "command successfully executed" },
                 TextStrings = new RestartStrings()
                 {
                     RestartOneWarn = "The server will restart in {0} {1}",
@@ -63,8 +63,8 @@ namespace AutoRestart
                     RestartAbort = "An important process is still running, can't restart. Trying again in 30 minutes",
                     MinutesWord = "minutes",
                     SecondsWord = "seconds",
-                    RestartMsg = "§6{0} is going down for a scheduled restart",
                     LogLoad = "Plugin Loaded, next restart in {0} {1}, at {2}",
+                    LogRestart = "Waiting 10 seconds",
                     LogUnload = "Plugin Unloaded"
                 }
             };
@@ -82,45 +82,46 @@ namespace AutoRestart
             backupManager = (BackupManager)host.GetPluginByName("BackupManager");
             renderManager = (RenderManager)host.GetPluginByName("RenderManager");
             bdsWatchdog = (Watchdog)host.GetPluginByName("Watchdog");
-            vz = (VellumZero.VellumZero)host.GetPluginByName("VellumZero");
 
-            // check if VZ plugin loaded and set up to use it if so
-            if (vz != null)
+            // add console ignore patterns
+            foreach (string s in RConfig.IgnorePatterns)
             {
-                vzEnabled = true;
-                statusMessages = vz.vzConfig.ServerStatusMessages;
+                if (s != null) bds.AddIgnorePattern(s);
             }
 
-            DateTime restartTime = DateTime.Parse(RConfig.AutoRestartTime);
-            if (restartTime < DateTime.Now)
-            {
-                restartTime.AddDays(1);
+            DateTime restartTime = DateTime.Parse(RConfig.DailyRestartTime);
+            if (restartTime < DateTime.Now) // || restartTime.Subtract(DateTime.Now).TotalMinutes < RConfig.WarningTime)
+            {                
+                restartTime = restartTime.AddDays(1);
             }
             double restartMins = restartTime.Subtract(DateTime.Now).TotalMinutes;
 
             if (autoRestartTimer != null) autoRestartTimer.Stop();
-            autoRestartTimer = new Timer((restartMins) * 60000);
+            autoRestartTimer = new Timer(restartMins * 60000);
             autoRestartTimer.AutoReset = false;
             autoRestartTimer.Elapsed += (object sender, ElapsedEventArgs e) =>
             {
                 if (!backupManager.Processing && !renderManager.Processing)
                 {
                     OnGoingDown();
-                    bdsWatchdog.RetryLimit = 0;
+                    bdsWatchdog.Disable();
+                    bds.SendInput("stop");
+                    bds.Process.WaitForExit();
                     bds.Close();
-                    Log("Rebooting Server, waiting 10 seconds to be safe");
+                    Log(RConfig.TextStrings.LogRestart);
                     System.Threading.Thread.Sleep(10000);
                     bds.Start();
-                    bdsWatchdog.RetryLimit = 3;
+                    bdsWatchdog.Enable();
                     OnStartingUp();
                 }
                 else
                 {
-                    // if a backup or render is still going, abort restart and try again in 30 mins
-                    RelayToServer(RConfig.TextStrings.RestartAbort);
+                    // if a backup or render is still going, abort restart and try again in twice the warning time
+                    SendTellraw(RConfig.TextStrings.RestartAbort);
                     Log(RConfig.TextStrings.RestartAbort);
-                    autoRestartTimer.Interval = 1800 * 1000;
-                    StartNotifyTimers(1800);
+                    autoRestartTimer.Interval = RConfig.WarningTime * 2 * 60000;
+                    autoRestartTimer.Start();
+                    StartNotifyTimers(RConfig.WarningTime * 2 * 60);
                 }
             };
 
@@ -138,9 +139,9 @@ namespace AutoRestart
             */
 
             // set up shutdown messages
-            StartNotifyTimers();
+            StartNotifyTimers((uint)(restartMins * 60));
             autoRestartTimer.Start();
-
+            Log(String.Format(RConfig.TextStrings.LogLoad, (uint)restartMins, RConfig.TextStrings.MinutesWord, RConfig.DailyRestartTime));
 
             // set up unexpected shutdown/crash handling
             bds.Process.Exited += (object sender, EventArgs e) =>
@@ -157,8 +158,6 @@ namespace AutoRestart
             ((IPlugin)bdsWatchdog).RegisterHook((byte)Watchdog.Hook.STABLE, (object sender, EventArgs e) => {
                 crashing = false;
             });
-
-            Log(String.Format(RConfig.TextStrings.LogLoad, (uint)restartMins, RConfig.TextStrings.MinutesWord, RConfig.AutoRestartTime));
         }
 
         public void RegisterHook(byte id, IPlugin.HookHandler callback)
@@ -188,34 +187,17 @@ namespace AutoRestart
 
 
 
-        private void StartNotifyTimers(uint s = 0)
+        private void StartNotifyTimers(uint s)
         {
-            DateTime restartTime = DateTime.Parse(RConfig.AutoRestartTime);
-            if (restartTime < DateTime.Now)
-            {
-                restartTime.AddDays(1);
-            }
-            double restartMins = restartTime.Subtract(DateTime.Now).TotalMinutes;
-
+            if (s <= 0) return;
             // high visibility shutdown timers
             if (RConfig.HiVisShutdown)
             {
                 uint timerMins;
-                if (s > 0)
-                {
-                    timerMins = (s > 600) ? (s - 600) / 60 : 0;
-                    msCountdown = (s > 600) ? 600000 : s * 1000;
-                }
-                else if (restartMins > 10)
-                {
-                    timerMins = (uint)restartMins - 10;
-                    msCountdown = 600000;
-                }
-                else
-                {
-                    timerMins = 0;
-                    msCountdown = (uint)restartMins * 60000;
-                }
+
+                timerMins = (s > (RConfig.WarningTime * 60)) ? (s - (RConfig.WarningTime * 60)) / 60 : 0;
+                msCountdown = (s > (RConfig.WarningTime * 60)) ? (RConfig.WarningTime * 60000) : s * 1000;
+
                 // countdown for the warning messages to start
                 if (hiVisWarnTimer != null) hiVisWarnTimer.Stop();
                 hiVisWarnTimer = new Timer((timerMins * 60000) + 1);
@@ -239,6 +221,7 @@ namespace AutoRestart
                                 Execute(String.Format("title @a actionbar " + RConfig.TextStrings.RestartSecSubtl, (int)Math.Ceiling((decimal)msCountdown / 1000m)));
                             if (RConfig.TextStrings.RestartSecTitle != "")
                                 Execute(String.Format("title @a title " + RConfig.TextStrings.RestartSecTitle, (int)Math.Ceiling((decimal)msCountdown / 1000m)));
+                            if (msCountdown < 999) hiVisWarnMsgs.Stop();
                         }
                     };
                     hiVisWarnMsgs.Start();
@@ -247,18 +230,19 @@ namespace AutoRestart
             }
             else
             {
+                
                 // normal warning message up to 5 mins out from restart
-                double countdown = (s > 0) ? s : (restartMins > 5) ? 300 : restartMins * 60;
-                string units = (countdown > 119) ? RConfig.TextStrings.MinutesWord : RConfig.TextStrings.SecondsWord;
-                countdown = (units == RConfig.TextStrings.SecondsWord) ? countdown : countdown / 60;
-                double timerTime = (restartMins > 5) ? restartMins - 5 : 0;
+                //double countdown = (s > 0) ? s : (restartMins > 5) ? 300 : restartMins * 60;
+                string units = (s > 119) ? RConfig.TextStrings.MinutesWord : RConfig.TextStrings.SecondsWord;
+                double timerTime = (s > (RConfig.WarningTime * 60)) ? s - (RConfig.WarningTime * 60) : 0;
+                s = (units == RConfig.TextStrings.SecondsWord) ? s : s / 60;
 
                 if (normalWarnMsg != null) normalWarnMsg.Stop();
-                normalWarnMsg = new Timer((timerTime * 60000) + 1);
+                normalWarnMsg = new Timer((timerTime * 1000) + 1);
                 normalWarnMsg.AutoReset = false;
                 normalWarnMsg.Elapsed += (object sender, ElapsedEventArgs e) =>
                 {
-                    RelayToServer(String.Format(RConfig.TextStrings.RestartOneWarn, countdown, units));
+                    SendTellraw(String.Format(RConfig.TextStrings.RestartOneWarn, RConfig.WarningTime, units));
                 };
                 normalWarnMsg.Start();
             }
@@ -275,9 +259,6 @@ namespace AutoRestart
         private void OnGoingDown()
         {
             CallHook(Hook.GOING_DOWN, EventArgs.Empty);
-
-            if (statusMessages && RConfig.TextStrings.RestartMsg != "") Broadcast(String.Format(RConfig.TextStrings.RestartMsg, _worldName));
-
         }
 
         private void OnStartingUp()
@@ -285,7 +266,7 @@ namespace AutoRestart
             CallHook(Hook.STARTING_UP, EventArgs.Empty);
 
             // set up for next restart
-            DateTime restartTime = DateTime.Parse(RConfig.AutoRestartTime);
+            DateTime restartTime = DateTime.Parse(RConfig.DailyRestartTime);
             if (restartTime < DateTime.Now)
             {
                 restartTime.AddDays(1);
@@ -295,45 +276,16 @@ namespace AutoRestart
             autoRestartTimer.Start();
         }
 
-        // run a command on the server
-        // if VZ exists, pass to it so it can use the bus, otherwise do it here
         private void Execute(string command)
         {
-            if (vzEnabled) vz.Execute(command);
-            else bds.SendInput(command); // this needs extra testing for character/encoding issues and if all in-game commands work this way
-        }
-
-        // messages meant for this server only
-        // pass to VZ if it exists so it can use the bus, otherwise sendtellraw here
-        private void RelayToServer(string message)
-        {
-            if (vzEnabled)
-            {
-                vz.RelayToServer(message);
-            } else
-            {
-                SendTellraw(message);
-            }
-        }
-
-        // messages that should be broadcast to discord and the bus if VZ is enabled
-        // otherwise they fall back to SendTellraw() and only go to this server
-        private void Broadcast(string message)
-        {
-            if (vzEnabled)
-            {
-                vz.Broadcast(message);
-            } else
-            {
-                SendTellraw(message);
-            }
+            bds.SendInput(command); 
         }
 
         // makes an announcement in game
         private void SendTellraw(string message)
         {
             message.Replace("\"", "'");
-            bds.SendInput("/tellraw @a {\"rawtext\":[{\"text\":\"" + message + "\"}]}");
+            bds.SendInput("tellraw @a {\"rawtext\":[{\"text\":\"" + message + "\"}]}");
         }
 
         internal void Log(string line)
@@ -345,12 +297,13 @@ namespace AutoRestart
     public struct RestartConfig
     {
         public RestartStrings TextStrings;
-        public string AutoRestartTime;
+        public uint WarningTime;
+        public string DailyRestartTime;
         public bool HiVisShutdown;
+        public string[] IgnorePatterns;
     }
     public struct RestartStrings
     {
-        public string RestartMsg;
         public string RestartOneWarn;
         public string RestartMinWarn;
         public string RestartSecTitle;
@@ -359,6 +312,7 @@ namespace AutoRestart
         public string MinutesWord;
         public string SecondsWord;
         public string LogLoad;
+        public string LogRestart;
         public string LogUnload;
     }
 }
