@@ -90,7 +90,7 @@ namespace AutoRestart
             }
 
             DateTime restartTime = DateTime.Parse(RConfig.DailyRestartTime);
-            if (restartTime < DateTime.Now) // || restartTime.Subtract(DateTime.Now).TotalMinutes < RConfig.WarningTime)
+            if (restartTime < DateTime.Now || restartTime.Subtract(DateTime.Now).TotalMinutes < 480)
             {                
                 restartTime = restartTime.AddDays(1);
             }
