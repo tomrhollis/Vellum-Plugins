@@ -60,10 +60,10 @@ namespace AutoRestart
                     RestartMinWarn = "§c§lLess than {0} min to scheduled restart!",
                     RestartSecTitle = "§c{0}",
                     RestartSecSubtl = "§c§lseconds until restart",
-                    RestartAbort = "An important process is still running, can't restart. Trying again in 30 minutes",
+                    RestartAbort = "An important process is still running, can't restart. Trying again in {0} minutes",
                     MinutesWord = "minutes",
                     SecondsWord = "seconds",
-                    LogLoad = "Plugin Loaded, next restart in {0} {1}, at {2}",
+                    LogLoad = "Plugin Loaded, next restart in {0} minutes, at {1}",
                     LogRestart = "Waiting 10 seconds",
                     LogUnload = "Plugin Unloaded"
                 }
@@ -118,10 +118,11 @@ namespace AutoRestart
                 {
                     // if a backup or render is still going, abort restart and try again in twice the warning time
                     SendTellraw(RConfig.TextStrings.RestartAbort);
-                    Log(RConfig.TextStrings.RestartAbort);
-                    autoRestartTimer.Interval = RConfig.WarningTime * 2 * 60000;
+                    uint nextTime = RConfig.WarningTime * 2;
+                    Log(String.Format(RConfig.TextStrings.RestartAbort, nextTime));
+                    autoRestartTimer.Interval = nextTime * 60000;
                     autoRestartTimer.Start();
-                    StartNotifyTimers(RConfig.WarningTime * 2 * 60);
+                    StartNotifyTimers(nextTime * 60);
                 }
             };
 
@@ -141,7 +142,7 @@ namespace AutoRestart
             // set up shutdown messages
             StartNotifyTimers((uint)(restartMins * 60));
             autoRestartTimer.Start();
-            Log(String.Format(RConfig.TextStrings.LogLoad, (uint)restartMins, RConfig.TextStrings.MinutesWord, RConfig.DailyRestartTime));
+            Log(String.Format(RConfig.TextStrings.LogLoad, (uint)restartMins, RConfig.DailyRestartTime));
 
             // set up unexpected shutdown/crash handling
             bds.Process.Exited += (object sender, EventArgs e) =>
