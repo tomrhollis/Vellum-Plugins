@@ -19,7 +19,7 @@ It is not ready for primetime yet; when it is, I'll post a release!
 - Run vellum as normal, and the plugin will be loaded
 
 ## Notes
-- If a backup or render is running when the plugin tries to restart your server, it will try again 30 minutes later, but the repeated warnings of an upcoming restart that doesn't happen may be annoying for your users.  Make sure your daily restart is scheduled away from a backup or render, ideally 5-15 minutes beforehand.
+- If a backup or render is running when the plugin tries to restart your server, it will try again later (2 x WarningTime minutes later).  But the repeated warnings of an upcoming restart that doesn't happen may be annoying for your users.  Make sure your daily restart is scheduled away from a backup or render, ideally 5-15 minutes beforehand.
 
 ## Sample Configuration
 ```
