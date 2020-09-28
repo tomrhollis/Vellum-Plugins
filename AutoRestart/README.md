@@ -3,8 +3,6 @@
 
 This is a plugin for Vellum that will enable automatic daily restarts of your Bedrock Dedicated Server for performance reasons.
 
-It is not ready for primetime yet; when it is, I'll post a release!
-
 ## Features
 - Specify a time for a daily reboot
 - Specify how early to warn users the reboot is coming
@@ -12,8 +10,8 @@ It is not ready for primetime yet; when it is, I'll post a release!
 - Optional Single Warning: Optionally, it will just send a single plain text message
 
 ## Installation
-- Download the latest release on the right
-- In whatever folder your vellum.exe is in, unzip this into a *plugins* subfolder
+- Download the [**latest release**](https://github.com/tomrhollis/Vellum-Plugins/releases)
+- In whatever folder your vellum.exe is in, place it into a *plugins* subfolder
 - Copy the sample configuration below into the Plugins section of vellum's configuration.json
 - Read the descriptions of the settings below, and make any changes as needed
 - Run vellum as normal, and the plugin will be loaded
