@@ -17,9 +17,8 @@ namespace AutoRestart
         private Timer hiVisWarnMsgs;
         private Timer normalWarnMsg;
         private uint msCountdown;
-        private string _worldName = "Bedrock level";
         private bool crashing = false;
-        private bool statusMessages = true;
+        private bool restarting = false;
 
         private ProcessManager bds;
         private BackupManager backupManager;
@@ -75,9 +74,6 @@ namespace AutoRestart
             Host = host;
             RConfig = host.LoadPluginConfiguration<RestartConfig>(this.GetType());
 
-            using (StreamReader reader = new StreamReader(File.OpenRead(Path.Join(Path.GetDirectoryName(host.RunConfig.BdsBinPath), "server.properties"))))
-                _worldName = Regex.Match(reader.ReadToEnd(), @"^level\-name\=(.+)", RegexOptions.Multiline).Groups[1].Value.Trim();
-
             bds = (ProcessManager)host.GetPluginByName("ProcessManager");
             backupManager = (BackupManager)host.GetPluginByName("BackupManager");
             renderManager = (RenderManager)host.GetPluginByName("RenderManager");
@@ -103,6 +99,7 @@ namespace AutoRestart
             {
                 if (!backupManager.Processing && !renderManager.Processing)
                 {
+                    restarting = true;
                     OnGoingDown();
                     bdsWatchdog.Disable();
                     bds.SendInput("stop");
@@ -113,6 +110,7 @@ namespace AutoRestart
                     bds.Start();
                     bdsWatchdog.Enable();
                     OnStartingUp();
+                    restarting = false;
                 }
                 else
                 {
@@ -154,7 +152,7 @@ namespace AutoRestart
                 crashing = true;
             });
             ((IPlugin)bdsWatchdog).RegisterHook((byte)Watchdog.Hook.LIMIT_REACHED, (object sender, EventArgs e) => {
-                Unload();
+                if (!restarting) Unload();
             });
             ((IPlugin)bdsWatchdog).RegisterHook((byte)Watchdog.Hook.STABLE, (object sender, EventArgs e) => {
                 crashing = false;
