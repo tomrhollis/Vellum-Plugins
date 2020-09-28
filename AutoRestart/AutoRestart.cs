@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text.RegularExpressions;
 using System.Timers;
 using Vellum.Automation;
 using Vellum.Extension;
@@ -146,7 +144,7 @@ namespace AutoRestart
             bds.Process.Exited += (object sender, EventArgs e) =>
             {
                 System.Threading.Thread.Sleep(1000); // give the watchdog a second to run the crashing hook if it's crashing
-                if (!crashing) Unload();
+                if (!crashing && !restarting) Unload();
             };
             ((IPlugin)bdsWatchdog).RegisterHook((byte)Watchdog.Hook.CRASH, (object sender, EventArgs e) => {
                 crashing = true;
