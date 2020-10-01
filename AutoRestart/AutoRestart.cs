@@ -47,7 +47,7 @@ namespace AutoRestart
         {
             return new RestartConfig()
             {
-                DailyRestartTime = "12:00",
+                DailyRestartTime = "11:00",
                 WarningTime = 10,
                 HiVisShutdown = true,
                 IgnorePatterns = new String[] { "No targets matched selector", "command successfully executed" },
@@ -91,7 +91,7 @@ namespace AutoRestart
             double restartMins = restartTime.Subtract(DateTime.Now).TotalMinutes;
 
             if (autoRestartTimer != null) autoRestartTimer.Stop();
-            autoRestartTimer = new Timer(restartMins * 60000);
+            autoRestartTimer = new Timer(restartMins * 60000 + 1);
             autoRestartTimer.AutoReset = false;
             autoRestartTimer.Elapsed += (object sender, ElapsedEventArgs e) =>
             {
@@ -144,7 +144,7 @@ namespace AutoRestart
             bds.Process.Exited += (object sender, EventArgs e) =>
             {
                 System.Threading.Thread.Sleep(1000); // give the watchdog a second to run the crashing hook if it's crashing
-                if (!crashing && !restarting) Unload();
+                if (!crashing && !restarting && !backupManager.Processing) Unload();
             };
             ((IPlugin)bdsWatchdog).RegisterHook((byte)Watchdog.Hook.CRASH, (object sender, EventArgs e) => {
                 crashing = true;
