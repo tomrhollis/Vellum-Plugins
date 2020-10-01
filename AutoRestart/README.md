@@ -24,7 +24,7 @@ This is a plugin for Vellum that will enable automatic daily restarts of your Be
     "AutoRestart": {
       "Enable": true,
       "Config": {
-        "DailyRestartTime": "12:00",
+        "DailyRestartTime": "11:00",
         "WarningTime": 10,
         "HiVisShutdown": true,
         "IgnorePatterns": [
