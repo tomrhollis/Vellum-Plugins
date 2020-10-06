@@ -10,7 +10,9 @@ namespace AutoRestart
     {
         public RestartConfig RConfig;
 
-        private Timer autoRestartTimer;
+        private Timer firstRestartTimer;
+        private Timer dailyRestartTimer;
+        private Timer delayTimer;
         private Timer hiVisWarnTimer;
         private Timer hiVisWarnMsgs;
         private Timer normalWarnMsg;
@@ -51,6 +53,7 @@ namespace AutoRestart
                 WarningTime = 10,
                 HiVisShutdown = true,
                 IgnorePatterns = new String[] { "No targets matched selector", "command successfully executed" },
+                TestingMode = false,
                 TextStrings = new RestartStrings()
                 {
                     RestartOneWarn = "The server will restart in {0} {1}",
@@ -61,7 +64,7 @@ namespace AutoRestart
                     MinutesWord = "minutes",
                     SecondsWord = "seconds",
                     LogLoad = "Plugin Loaded, next restart in {0} minutes, at {1}",
-                    LogRestart = "Waiting 10 seconds",
+                    LogRestart = "Restart timer reset for tomorrow at {0}",
                     LogUnload = "Plugin Unloaded"
                 }
             };
@@ -84,43 +87,28 @@ namespace AutoRestart
             }
 
             DateTime restartTime = DateTime.Parse(RConfig.DailyRestartTime);
-            if (restartTime < DateTime.Now || restartTime.Subtract(DateTime.Now).TotalMinutes < 480)
+            if (restartTime < DateTime.Now || (!RConfig.TestingMode && restartTime.Subtract(DateTime.Now).TotalMinutes < 480))
             {                
                 restartTime = restartTime.AddDays(1);
             }
             double restartMins = restartTime.Subtract(DateTime.Now).TotalMinutes;
 
-            if (autoRestartTimer != null) autoRestartTimer.Stop();
-            autoRestartTimer = new Timer(restartMins * 60000 + 1);
-            autoRestartTimer.AutoReset = false;
-            autoRestartTimer.Elapsed += (object sender, ElapsedEventArgs e) =>
+            firstRestartTimer = new Timer(restartMins * 60000 + 1);
+            firstRestartTimer.AutoReset = false;
+            firstRestartTimer.Elapsed += (object sender, ElapsedEventArgs e) =>
             {
-                if (!backupManager.Processing && !renderManager.Processing)
-                {
-                    restarting = true;
-                    OnGoingDown();
-                    bdsWatchdog.Disable();
-                    bds.SendInput("stop");
-                    bds.Process.WaitForExit();
-                    bds.Close();
-                    Log(RConfig.TextStrings.LogRestart);
-                    System.Threading.Thread.Sleep(10000);
-                    bds.Start();
-                    bdsWatchdog.Enable();
-                    OnStartingUp();
-                    restarting = false;
-                }
-                else
-                {
-                    // if a backup or render is still going, abort restart and try again in twice the warning time
-                    SendTellraw(RConfig.TextStrings.RestartAbort);
-                    uint nextTime = RConfig.WarningTime * 2;
-                    Log(String.Format(RConfig.TextStrings.RestartAbort, nextTime));
-                    autoRestartTimer.Interval = nextTime * 60000;
-                    autoRestartTimer.Start();
-                    StartNotifyTimers(nextTime * 60);
-                }
+                dailyRestartTimer.Start();
+                TriggerRestart(sender, e);
             };
+            firstRestartTimer.Start();
+
+            dailyRestartTimer = new Timer(86400000);
+            dailyRestartTimer.AutoReset = true;
+            dailyRestartTimer.Elapsed += TriggerRestart;
+
+            delayTimer = new Timer(RConfig.WarningTime * 2 * 60000 + 1);
+            delayTimer.AutoReset = false;
+            delayTimer.Elapsed += TriggerRestart;
 
             /* - enable notifications for console-scheduled shutdown: need an event to be implemented in base vellum
             bds.OnShutdownScheduled += (object sender, ShutdownScheduledEventArgs e) =>
@@ -137,7 +125,6 @@ namespace AutoRestart
 
             // set up shutdown messages
             StartNotifyTimers((uint)(restartMins * 60));
-            autoRestartTimer.Start();
             Log(String.Format(RConfig.TextStrings.LogLoad, (uint)restartMins, RConfig.DailyRestartTime));
 
             // set up unexpected shutdown/crash handling
@@ -178,11 +165,38 @@ namespace AutoRestart
         public void Unload()
         {
             StopTimers();
+            dailyRestartTimer.Stop(); // have to handle this here or it doesn't work
             Log(RConfig.TextStrings.LogUnload);
         }
         #endregion
 
+        private void TriggerRestart(object sender, ElapsedEventArgs e)
+        {
+            if (!backupManager.Processing && !renderManager.Processing)
+            {                
+                restarting = true;
+                OnGoingDown();
 
+                bdsWatchdog.Disable();
+                bds.SendInput("stop");
+                bds.Process.WaitForExit();
+                bds.Close();
+
+                Log(String.Format(RConfig.TextStrings.LogRestart, RConfig.DailyRestartTime));
+                System.Threading.Thread.Sleep(10000);
+
+                bds.Start();
+                bdsWatchdog.Enable();
+
+                OnStartingUp();
+            }
+            else
+            {
+                // if a backup or render is still going, abort restart and try again in twice the warning time
+                SendTellraw(RConfig.TextStrings.RestartAbort);
+                delayTimer.Start();
+            }
+        }
 
         private void StartNotifyTimers(uint s)
         {
@@ -196,13 +210,13 @@ namespace AutoRestart
                 msCountdown = (s > (RConfig.WarningTime * 60)) ? (RConfig.WarningTime * 60000) : s * 1000;
 
                 // countdown for the warning messages to start
-                if (hiVisWarnTimer != null) hiVisWarnTimer.Stop();
+                if (hiVisWarnTimer != null) hiVisWarnTimer.Close();
                 hiVisWarnTimer = new Timer((timerMins * 60000) + 1);
                 hiVisWarnTimer.AutoReset = false;
                 hiVisWarnTimer.Elapsed += (object sender, ElapsedEventArgs e) =>
                 {
                     // repeating countdown for each warning message
-                    if (hiVisWarnMsgs != null) hiVisWarnMsgs.Stop();
+                    if (hiVisWarnMsgs != null) hiVisWarnMsgs.Close();
                     hiVisWarnMsgs = new Timer(1000);
                     hiVisWarnMsgs.AutoReset = true;
                     hiVisWarnMsgs.Elapsed += (object sender, ElapsedEventArgs e) =>
@@ -234,7 +248,7 @@ namespace AutoRestart
                 double timerTime = (s > (RConfig.WarningTime * 60)) ? s - (RConfig.WarningTime * 60) : 0;
                 s = (units == RConfig.TextStrings.SecondsWord) ? s : s / 60;
 
-                if (normalWarnMsg != null) normalWarnMsg.Stop();
+                if (normalWarnMsg != null) normalWarnMsg.Close();
                 normalWarnMsg = new Timer((timerTime * 1000) + 1);
                 normalWarnMsg.AutoReset = false;
                 normalWarnMsg.Elapsed += (object sender, ElapsedEventArgs e) =>
@@ -247,7 +261,8 @@ namespace AutoRestart
 
         private void StopTimers()
         {
-            if (autoRestartTimer != null) autoRestartTimer.Stop();
+            if (firstRestartTimer != null) firstRestartTimer.Stop();
+            if (delayTimer != null) delayTimer.Stop();
             if (hiVisWarnTimer != null) hiVisWarnTimer.Stop();
             if (hiVisWarnMsgs != null) hiVisWarnMsgs.Stop();
             if (normalWarnMsg != null) normalWarnMsg.Stop();
@@ -261,16 +276,6 @@ namespace AutoRestart
         private void OnStartingUp()
         {
             CallHook(Hook.STARTING_UP, EventArgs.Empty);
-
-            // set up for next restart
-            DateTime restartTime = DateTime.Parse(RConfig.DailyRestartTime);
-            if (restartTime < DateTime.Now)
-            {
-                restartTime.AddDays(1);
-            }
-            double restartMins = restartTime.Subtract(DateTime.Now).TotalMinutes;
-            autoRestartTimer.Interval = restartMins * 60000;
-            autoRestartTimer.Start();
         }
 
         private void Execute(string command)
@@ -298,6 +303,7 @@ namespace AutoRestart
         public string DailyRestartTime;
         public bool HiVisShutdown;
         public string[] IgnorePatterns;
+        public bool TestingMode;
     }
     public struct RestartStrings
     {
