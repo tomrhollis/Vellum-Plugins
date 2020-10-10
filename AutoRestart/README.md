@@ -15,6 +15,7 @@ This is a plugin for Vellum that will enable automatic daily restarts of your Be
 - Copy the sample configuration below into the Plugins section of vellum's configuration.json
 - Read the descriptions of the settings below, and make any changes as needed
 - Run vellum as normal, and the plugin will be loaded
+- If you're running an ElementZero server in Wine on Linux, you may have to remove the Minecraft formatting from the TextStrings.  (I'm still working through how to get those working reliably in that specific environment)
 
 ## Notes
 - If a backup or render is running when the plugin tries to restart your server, it will try again later (2 x WarningTime minutes later).  But the repeated warnings of an upcoming restart that doesn't happen may be annoying for your users.  Make sure your daily restart is scheduled away from a backup or render, ideally 5-15 minutes beforehand.
@@ -27,6 +28,7 @@ This is a plugin for Vellum that will enable automatic daily restarts of your Be
         "DailyRestartTime": "11:00",
         "WarningTime": 10,
         "HiVisShutdown": true,
+        "TestingMode": false,
         "IgnorePatterns": [
           "No targets matched selector",
           "command successfully executed"
@@ -56,6 +58,9 @@ WarningTime               Number of minutes before the restart to warn users
 
 HiVisShutdown             true/false: Whether to have lots of colorful warnings during the WarningTime (true)
                           or just do one simple announcement at the WarningTime (false)
+
+TestingMode               false: The first restart will be pushed to tomorrow if it's within 8 hours of start
+                          true: The first restart can happen immediately if that's when it's scheduled
                           
 IgnorePatterns            Lines containing this text should be prevented from displaying in the console
                           If you're using HiVisShutdown, it will spam your console with certain lines
