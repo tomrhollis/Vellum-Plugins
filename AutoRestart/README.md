@@ -42,7 +42,7 @@ This is a plugin for Vellum that will enable automatic daily restarts of your Be
           "MinutesWord": "minutes",
           "SecondsWord": "seconds",
           "LogLoad": "Plugin Loaded, next restart in {0} minutes, at {1}",
-          "LogRestart": "Waiting 10 seconds",
+          "LogRestart": "Restart timer reset for tomorrow at {0}",
           "LogUnload": "Plugin Unloaded"
         }
       }
